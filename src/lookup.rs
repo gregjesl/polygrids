@@ -1,6 +1,8 @@
 
 use std::{ops::{Index, IndexMut, Mul, Add}, rc::Rc};
 use nalgebra::RealField;
+use crate::{Axis32, Axis64};
+
 use super::Axis;
 
 #[derive(Clone, Debug)]
@@ -217,6 +219,18 @@ where G: RealField + Copy + From<f32>,
     }
 }
 
+pub type LookupTable32 = LookupTable<f32, f32>;
+pub type LookupTable64 = LookupTable<f64, f64>;
+
+/// Creates a cartesian heightmap using f32
+pub fn cartesian_map_32(x: Axis32, y: Axis32) -> LookupTable32 {
+    return LookupTable32::new(&[x, y]);
+}
+
+/// Creates a cartesian heightmap using f64
+pub fn cartesian_map_64(x: Axis64, y: Axis64) -> LookupTable64 {
+    return LookupTable64::new(&[x, y]);
+}
 
 #[cfg(test)]
 mod tests {
