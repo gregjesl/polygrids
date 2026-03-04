@@ -6,7 +6,9 @@ edition = "2024"
 [dependencies]
 nalgebra = "0.34.1"
 rand = { version = "0.10.0", optional = true }
+angle-sc = { version = "1.1.4", optional = true }
 
 [features]
 rand = ["dep:rand"]
-default = ["rand"]
+spherical = ["dep:angle-sc"]
+default = ["rand", "spherical"]

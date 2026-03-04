@@ -1,5 +1,9 @@
 use nalgebra::RealField;
 pub mod lookup;
+pub mod grid;
+
+#[cfg(feature = "spherical")]
+pub mod spherical;
 
 #[cfg(feature = "rand")]
 use rand::{Rng, RngExt};
