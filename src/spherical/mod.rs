@@ -1,12 +1,101 @@
-mod geometry;
 mod faces;
+use std::{cell::RefCell, rc::Rc, sync::{Arc, Mutex}};
+
 use nalgebra::Vector3;
-use std::{collections::{BTreeSet, HashSet}, hash::Hash};
+use crate::grid::{Vertex, VertexSource, IndexedVertexSource, IndexedVertexSink};
+use angle_sc::{Angle, Degrees};
 
-use geometry::{Triangle, Ray};
-use faces::{FaceTree, FaceBranch};
-use crate::grid::Vertex;
+#[cfg(feature = "rand")]
+use rand::Rng;
 
+#[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd)]
+pub struct Ray
+{
+    /// Latitude
+    lat: Angle,
+
+    /// Longitude
+    lon: Angle
+}
+
+impl Ray
+{
+    pub fn new(lat: Angle, lon: Angle) -> Self
+    {
+        debug_assert!(lat.abs() <= Angle::from(Degrees(90.0)));
+        debug_assert!(lon.abs() <= Angle::from(Degrees(180.0)));
+        Self { lat, lon }
+    }
+
+    pub fn latitude(&self) -> &Angle
+    {
+        &self.lat
+    }
+
+    pub fn longitude(&self) -> &Angle
+    {
+        &self.lon
+    }
+
+    #[cfg(feature = "rand")]
+    pub fn random<R: Rng + ?Sized>(rng: &mut R) -> Self
+    {
+        use rand::RngExt;
+
+        let u = rng.random_range(0.0..1.0);
+        let v = rng.random_range(0.0..1.0);
+        let theta = 2.0 * std::f64::consts::PI * u;
+        let phi: f64 = (2.0f64 * v - 1.0).acos();
+        let x = theta.sin() * phi.cos();
+        let y = theta.sin() * phi.sin();
+        let z = phi.cos();
+        debug_assert!(x.is_finite() && y.is_finite() && z.is_finite());
+        let point = Vector3::new(x, y, z);
+        point.into()
+    }
+}
+
+impl Vertex for Ray {
+    type Scalar = f64;
+
+    fn project(&self, distance: f64) -> Vector3<f64> {
+        let x = distance * self.lat.cos().0 * self.lon.cos().0;
+        let y = distance * self.lat.cos().0 * self.lon.sin().0;
+        let z = distance * self.lat.sin().0;
+        Vector3::new(x, y, z)
+    }
+}
+
+impl From<Vector3<f64>> for Ray {
+    fn from(coord: Vector3<f64>) -> Self {
+        let r = coord.norm();
+        if r == 0.0 { return Ray { lat: Angle::default(), lon: Angle::default() }}
+        let xynorm = (coord.x * coord.x + coord.y * coord.y).sqrt();
+        let lat = Angle::from_y_x(coord.z, xynorm);
+        let lon = Angle::from_y_x(coord.y, coord.x);
+        Self { lat, lon }
+    }
+}
+
+impl VertexSource for Ray {
+
+    fn midpoint(x: &Self, y: &Self) -> Self {
+        let c1 = x.project(1.0);
+        let c2 = y.project(1.0);
+        if x < y {
+            let mid = (c1 + c2) / 2.0;
+            mid.into()
+        } else {
+            let mid = (c2 + c1) / 2.0;
+            mid.into()
+        }
+    }
+}
+
+type SharedRayCollection = Rc<RefCell<Vec<(Ray, (usize, usize))>>>;
+type AtomicRayCollection = Arc<Mutex<Vec<(Ray, (usize, usize))>>>;
+
+/* 
 #[derive(Clone)]
 pub struct Polyhedron {
     faces: [FaceTree<Ray>; 20],
@@ -143,3 +232,4 @@ mod tests {
         }
     }
 }
+    */

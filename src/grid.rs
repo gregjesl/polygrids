@@ -41,20 +41,25 @@ where T: RealField + Clone
     }
 }
 
-pub trait IndexedVertexSource<G> {
+pub trait IndexedVertexSource {
+    type Scalar: RealField + Clone;
+    type Vertex: Vertex<Scalar = Self::Scalar>;
 
     /// Get a vertex by index
-    fn get(&self, index: usize) -> Option<G>;
+    fn get(&self, index: usize) -> Option<Self::Vertex>;
 
     /// Get the number of vertices in the source
     fn len(&self) -> usize;
 }
 
-impl<G, T> IndexedVertexSource<G> for Rc<Vec<G>>
-where G: Vertex<Scalar = T> + Clone,
-      T: RealField
+impl<V, T> IndexedVertexSource for Rc<Vec<V>>
+where V: Vertex<Scalar = T> + Clone,
+      T: RealField + Clone
 {
-    fn get(&self, index: usize) -> Option<G> {
+    type Scalar = T;
+    type Vertex = V;
+
+    fn get(&self, index: usize) -> Option<Self::Vertex> {
         self.as_ref().get(index).cloned()
     }
 
@@ -63,11 +68,14 @@ where G: Vertex<Scalar = T> + Clone,
     }
 }
 
-impl<G, T> IndexedVertexSource<G> for Arc<Vec<G>>
-where G: Vertex<Scalar = T> + Clone,
-      T: RealField
+impl<V, T> IndexedVertexSource for Arc<Vec<V>>
+where V: Vertex<Scalar = T> + Clone,
+      T: RealField + Clone
 {
-    fn get(&self, index: usize) -> Option<G> {
+    type Scalar = T;
+    type Vertex = V;
+
+    fn get(&self, index: usize) -> Option<Self::Vertex> {
         self.as_ref().get(index).cloned()
     }
 
@@ -76,10 +84,14 @@ where G: Vertex<Scalar = T> + Clone,
     }
 }
 
-impl<G, T> IndexedVertexSource<G> for Rc<RefCell<Vec<(G, (usize, usize))>>>
-where G: Vertex<Scalar = T> + Clone
+impl<V, T> IndexedVertexSource for Rc<RefCell<Vec<(V, (usize, usize))>>>
+where V: Vertex<Scalar = T> + Clone,
+      T: RealField + Clone
 {
-    fn get(&self, index: usize) -> Option<G> {
+    type Scalar = T;
+    type Vertex = V;
+
+    fn get(&self, index: usize) -> Option<Self::Vertex> {
         self.borrow().get(index).cloned().map(|(vertex, _)| vertex)
     }
 
@@ -88,10 +100,14 @@ where G: Vertex<Scalar = T> + Clone
     }
 }
 
-impl<G, T> IndexedVertexSource<G> for Arc<Mutex<Vec<(G, (usize, usize))>>>
-where G: Vertex<Scalar = T> + Clone
+impl<V, T> IndexedVertexSource for Arc<Mutex<Vec<(V, (usize, usize))>>>
+where V: Vertex<Scalar = T> + Clone,
+      T: RealField + Clone
 {
-    fn get(&self, index: usize) -> Option<G> {
+    type Scalar = T;
+    type Vertex = V;
+
+    fn get(&self, index: usize) -> Option<Self::Vertex> {
         let guard = self.lock().unwrap();
         guard.get(index).cloned().map(|(vertex, _)| vertex)
     }
@@ -102,38 +118,42 @@ where G: Vertex<Scalar = T> + Clone
     }
 }
 
-pub trait IndexedVertexSink<G, T> 
-where G: Vertex<Scalar = T>,
-      T: RealField + Clone
+pub trait IndexedVertexSink
 {
+    type Scalar: RealField + Clone;
+    type Vertex: Vertex<Scalar = Self::Scalar>;
+
     fn new_collection() -> Self;
-    fn seed(&mut self, vertex: G) -> usize;
-    fn midpoint(&mut self, v1: usize, v2: usize) -> Option<(G, usize)>;
+    fn seed(&mut self, vertex: Self::Vertex) -> usize;
+    fn midpoint(&mut self, v1: usize, v2: usize) -> Option<(Self::Vertex, usize)>;
 }
 
-impl<G, T> IndexedVertexSink<G, T> for Rc<RefCell<Vec<(G, (usize, usize))>>>
-where G: Vertex<Scalar = T> + VertexSource + Clone,
+impl<V, T> IndexedVertexSink for Rc<RefCell<Vec<(V, (usize, usize))>>>
+where V: Vertex<Scalar = T> + VertexSource + Clone,
       T: RealField + Clone
 {
+    type Scalar = T;
+    type Vertex = V;
+
     fn new_collection() -> Self {
         Rc::new(RefCell::new(Vec::new()))
     }
 
-    fn seed(&mut self, vertex: G) -> usize {
+    fn seed(&mut self, vertex: Self::Vertex) -> usize {
         let mut guard = self.borrow_mut();
         let index = guard.len();
         guard.push((vertex, (index, index)));
         index
     }
 
-    fn midpoint(&mut self, v1: usize, v2: usize) -> Option<(G, usize)> {
+    fn midpoint(&mut self, v1: usize, v2: usize) -> Option<(Self::Vertex, usize)> {
         debug_assert_ne!(v1, v2, "Vertices must be different");
         let key = if v1 < v2 { (v1, v2) } else { (v2, v1) };
         let mut guard = self.borrow_mut();
         if let Some(index) = guard.iter().position(|(_, k)| *k == key) {
             return Some((guard.get(index).expect("Invalid vertex index").0.clone(), index));
         }
-        let midpoint = G::midpoint(
+        let midpoint = Self::Vertex::midpoint(
             &guard.get(v1)?.0, 
             &guard.get(v2)?.0
         );
@@ -149,29 +169,32 @@ pub type ICVC32 = Rc<RefCell<Vec<(CartesianVertex32, (usize, usize))>>>;
 /// (I)ndexed (C)artesian (V)ertex (C)ollection with an f64 base
 pub type ICVC64 = Rc<RefCell<Vec<(CartesianVertex64, (usize, usize))>>>;
 
-impl<G, T> IndexedVertexSink<G, T> for Arc<Mutex<Vec<(G, (usize, usize))>>>
-where G: Vertex<Scalar = T> + VertexSource + Clone,
+impl<V, T> IndexedVertexSink for Arc<Mutex<Vec<(V, (usize, usize))>>>
+where V: Vertex<Scalar = T> + VertexSource + Clone,
       T: RealField + Clone
 {
+    type Scalar = T;
+    type Vertex = V;
+
     fn new_collection() -> Self {
         Arc::new(Mutex::new(Vec::new()))
     }
 
-    fn seed(&mut self, vertex: G) -> usize {
+    fn seed(&mut self, vertex: Self::Vertex) -> usize {
         let mut guard = self.lock().unwrap();
         let index = guard.len();
         guard.push((vertex, (index, index)));
         index
     }
 
-    fn midpoint(&mut self, v1: usize, v2: usize) -> Option<(G, usize)> {
+    fn midpoint(&mut self, v1: usize, v2: usize) -> Option<(Self::Vertex, usize)> {
         debug_assert_ne!(v1, v2, "Vertices must be different");
         let key = if v1 < v2 { (v1, v2) } else { (v2, v1) };
         let mut guard = self.lock().expect("Unable to lock collection");
         if let Some(index) = guard.iter().position(|(_, k)| *k == key) {
             return Some((guard.get(index).expect("Invalid vertex index").0.clone(), index));
         }
-        let midpoint = G::midpoint(
+        let midpoint = Self::Vertex::midpoint(
             &guard.get(v1)?.0, 
             &guard.get(v2)?.0
         );

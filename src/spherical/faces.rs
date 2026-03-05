@@ -1,78 +1,91 @@
-use std::{collections::HashSet, ops::Index};
-
-use super::geometry::{Ray, Triangle};
-use crate::{grid::{Vertex, VertexSource}};
+use crate::{geometry::{SharedTriangle, Triangle}, grid::{IndexedVertexSink, IndexedVertexSource, Vertex, VertexSource}};
 use nalgebra::Vector3;
 
-#[derive(Clone)]
-pub struct Face<G>
-where G: Vertex<f64>
+#[derive(Clone, Debug)]
+struct Face<C, V>
+where C: IndexedVertexSource<Scalar = f64, Vertex = V> + Clone,
+      V: Vertex<Scalar = f64> + Clone
 {
-    pub(crate) triangle: Triangle<G, f64>,
+    triangle: SharedTriangle<C>,
     normal: Vector3<f64>,
 }
 
-impl<G> Face<G>
-where G: Vertex<f64>
+impl<C, V> Face<C, V>
+where C: IndexedVertexSource<Scalar = f64, Vertex = V> + Clone,
+      V: Vertex<Scalar = f64> + Clone
 {
     pub fn dot_normal(&self, vector: &Vector3<f64>) -> f64 {
         self.normal.dot(vector)
     }
 }
 
-impl<G> IntoIterator for Face<G>
-where G: Vertex<f64> + Clone
+impl<C, V> Face<C, V>
+where C: IndexedVertexSource<Scalar = f64, Vertex = V> + IndexedVertexSink<Scalar = f64, Vertex = V> + Clone,
+      V: Vertex<Scalar = f64> + VertexSource + PartialOrd + Clone
 {
-    type Item = G;
-    type IntoIter = std::vec::IntoIter<G>;
+    pub fn new(triangle: Triangle<V, f64>, mut collection: C) -> Self {
+        let normal = triangle.center();
+        let v0 = collection.seed(triangle[0].clone());
+        let v1 = collection.seed(triangle[1].clone());
+        let v2 = collection.seed(triangle[2].clone());
+        let shared = SharedTriangle::new(v0, v1, v2, collection);
+        Self { triangle: shared, normal }
+    }
 
-    fn into_iter(self) -> std::vec::IntoIter<G> {
-        self.triangle.into_iter()
+    pub fn subdivide4(&mut self) -> Option<[Face<C, V>; 4]> {
+        let sub_triangles = self.triangle.subdivide4()?;
+        
+        // Triangle 0
+        let centers: Vec<_> = sub_triangles.iter()
+            .map(|t| t.load().center())
+            .collect();
+
+        let result = [
+            Self { triangle: sub_triangles[0].clone(), normal: centers[0] },
+            Self { triangle: sub_triangles[1].clone(), normal: centers[1] },
+            Self { triangle: sub_triangles[2].clone(), normal: centers[2] },
+            Self { triangle: sub_triangles[3].clone(), normal: centers[3] },
+        ];
+        Some(result)
     }
 }
 
-impl<G> Face<G>
-where G: Vertex<f64> + VertexSource<f64> + Clone + PartialOrd
+impl<C, V> From<SharedTriangle<C>> for Face<C, V>
+where C: IndexedVertexSource<Scalar = f64, Vertex = V> + Clone,
+      V: Vertex<Scalar = f64> + PartialOrd + Clone
 {
-    pub fn new(triangle: Triangle<G, f64>) -> Self {
-        let normal = triangle.center().normalize();
-        Face {
-            triangle,
-            normal,
-        }
-    }
-
-    pub fn center(&self) -> Vector3<f64> {
-        self.triangle.center()
-    }
-
-    pub fn subdivide(&self) -> [Face<G>; 4] 
-    {
-        self.triangle.subdivide().map(Face::new)
+    fn from(triangle: SharedTriangle<C>) -> Self {
+        let normal = triangle.load().center();
+        Self { triangle, normal }
     }
 }
 
 /// A face that may have children
 #[derive(Clone)]
-pub(crate) struct FaceBranch<G>
-where G: Vertex<f64>
+struct FaceBranch<C, V>
+where C: IndexedVertexSource<Scalar = f64, Vertex = V> + Clone,
+      V: Vertex<Scalar = f64> + Clone
 {
-    pub face: Face<G>,
+    pub face: Face<C, V>,
     pub children: Option<[usize; 4]>,
 }
 
 /// A root face that may have children
 #[derive(Clone)]
-pub(crate) struct FaceTree<G>
-where G: Vertex<f64>
+pub(crate) struct FaceTree<C, V>
+where C: IndexedVertexSource<Scalar = f64, Vertex = V> + Clone,
+      V: Vertex<Scalar = f64> + Clone
 {
-    faces: Vec<FaceBranch<G>>,
+    faces: Vec<FaceBranch<C, V>>,
 }
 
-impl FaceTree<Ray>
+impl<C, V> FaceTree<C, V>
+where C: IndexedVertexSource<Scalar = f64, Vertex = V> + IndexedVertexSink<Scalar = f64, Vertex = V> + Clone,
+      V: Vertex<Scalar = f64> + VertexSource + PartialOrd + Clone
 {
-    pub fn new(triangle: Triangle<Ray, f64>) -> Self {
-        let root_face = Face::new(triangle);
+    pub fn new(triangle: SharedTriangle<C>) -> Self
+    {
+        let root_face: Face<C, V> = triangle.into();
         let root_branch = FaceBranch {
             face: root_face,
             children: None,
@@ -82,11 +95,11 @@ impl FaceTree<Ray>
         }
     }
 
-    pub fn root(&self) -> &Face<Ray> {
+    pub fn root(&self) -> &Face<C, V> {
         &self.faces[0].face
     }
 
-    fn insert(&mut self, face: Face<Ray>) -> usize {
+    fn insert(&mut self, face: Face<C, V>) -> usize {
         let index = self.faces.len();
         let branch = FaceBranch {
             face,
@@ -108,8 +121,8 @@ impl FaceTree<Ray>
     pub fn subdivide(&mut self)
     {
         for leaf in self.leaf_start()..self.faces.len() {
-            let face = &self.faces[leaf].face;
-            let sub_faces = face.subdivide();
+            let face = &mut self.faces[leaf].face;
+            let sub_faces = face.subdivide4().unwrap();
             let mut child_indices = [0; 4];
             for (i, sub_face) in sub_faces.into_iter().enumerate() {
                 let child_index = self.insert(sub_face);
@@ -118,31 +131,12 @@ impl FaceTree<Ray>
             self.faces[leaf].children = Some(child_indices);
         }
     }
-
-    // Returns a list of all unique vertices in the tree
-    pub fn vertices(&self) -> HashSet<Ray> {
-        let mut set = HashSet::new();
-        for face in &self.faces {
-            for vertex in face.face.clone().into_iter() {
-                set.insert(vertex);
-            }
-        }
-        set
-    }
-}
-
-impl Index<usize> for FaceTree<Ray>
-{
-    type Output = FaceBranch<Ray>;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.faces[index]
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{spherical::{Ray, SharedRayCollection}, grid::{IndexedVertexSink, IndexedVertexSource}};
     
     #[test]
     fn test_vertices() {
@@ -151,17 +145,27 @@ mod tests {
             Vector3::new(0.0, 1.0, 0.0).into(),
             Vector3::new(0.0, 0.0, 1.0).into()
         );
+        
+        let mut collection = SharedRayCollection::new_collection();
+        let v0 = collection.seed(triangle[0]);
+        let v1 = collection.seed(triangle[1]);
+        let v2 = collection.seed(triangle[2]);
+        let shared = SharedTriangle::new(v0, v1, v2, collection.clone());
+        let echo = shared.load();
+        for i in 0..3 {
+            assert_eq!(triangle[i], echo[i]);
+        }
     
         // Formula = (2^n+1)(2^n+2)/2
-        let mut tree = FaceTree::new(triangle);
-        assert_eq!(tree.vertices().len(), 3);
+        let mut tree = FaceTree::new(shared);
+        assert_eq!(collection.len(), 3);
         tree.subdivide();
-        assert_eq!(tree.vertices().len(), 6);
+        assert_eq!(collection.len(), 6);
         tree.subdivide();
-        assert_eq!(tree.vertices().len(), 15);
+        assert_eq!(collection.len(), 15);
         tree.subdivide();
-        assert_eq!(tree.vertices().len(), 45);
+        assert_eq!(collection.len(), 45);
         tree.subdivide();
-        assert_eq!(tree.vertices().len(), 153);
+        assert_eq!(collection.len(), 153);
     }
 }

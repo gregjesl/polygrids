@@ -1,6 +1,7 @@
 use nalgebra::RealField;
 pub mod lookup;
 pub mod grid;
+pub mod geometry;
 
 #[cfg(feature = "spherical")]
 pub mod spherical;
