@@ -1,17 +1,21 @@
 use std::{marker::PhantomData, ops::Index};
 use nalgebra::{RealField, Vector2, Vector3};
-use std::{rc::Rc, cell::RefCell};
+use std::{rc::Rc, sync::{Arc, Mutex}, cell::RefCell};
 
 /// A vertex in two dimensions
-pub trait Vertex<T> {
+pub trait Vertex {
+    type Scalar: RealField + Clone;
+
     /// Map from two into three dimesions
-    fn project(&self, distance: T) -> Vector3<T>;
+    fn project(&self, distance: Self::Scalar) -> Vector3<Self::Scalar>;
 }
 
-impl<T> Vertex<T> for Vector2<T> 
+impl<T> Vertex for Vector2<T> 
 where T: RealField + Clone
 {
-    fn project(&self, distance: T) -> Vector3<T> {
+    type Scalar = T;
+
+    fn project(&self, distance: Self::Scalar) -> Vector3<Self::Scalar> {
         Vector3::new(self.x.clone(), self.y.clone(), distance)
     }
 }
@@ -20,14 +24,14 @@ pub type CartesianVertex32 = Vector2<f32>;
 pub type CartesianVertex64 = Vector2<f64>;
 
 /// A vertex in two dimensions that can spawn other vertices
-pub trait VertexSource<T>
+pub trait VertexSource
 {
     /// Compute the midpoint 
     fn midpoint(x: &Self, y: &Self) -> Self;
 }
 
-impl<T> VertexSource<T> for Vector2<T>
-where T: RealField
+impl<T> VertexSource for Vector2<T>
+where T: RealField + Clone
 {
     fn midpoint(x: &Self, y: &Self) -> Self {
         if x < y {
@@ -38,151 +42,210 @@ where T: RealField
     }
 }
 
-struct IndexedVertexCollection<G, T>
-where G: Vertex<T> + VertexSource<T> + Clone,
-      T: RealField 
-{
-    map: Vec<(G, (usize, usize))>,
-    _marker: std::marker::PhantomData<T>
+trait IndexedVertexSource<G> {
+    fn get(&self, index: usize) -> Option<G>;
+    fn len(&self) -> usize;
 }
 
-impl<G, T> IndexedVertexCollection<G, T>
-where G: Vertex<T> + VertexSource<T> + Clone,
+impl<G, T> IndexedVertexSource<G> for Rc<Vec<G>>
+where G: Vertex<Scalar = T> + Clone,
       T: RealField
 {
-    fn new() -> Self {
-        Self {
-            map: Vec::new(),
-            _marker: std::marker::PhantomData
-        }
+    fn get(&self, index: usize) -> Option<G> {
+        self.as_ref().get(index).cloned()
     }
 
-    fn seed(&mut self, vertex: G) -> (&G, usize) {
-        let index = self.map.len();
-        let id = (index, index);
-        self.map.push((vertex, id));
-        let (vertex, echo) = self.map.last().unwrap();
-        debug_assert_eq!(id, *echo, "ID should match the index");
-        (vertex, index)
+    fn len(&self) -> usize {
+        self.as_ref().len()
+    }
+}
+
+impl<G, T> IndexedVertexSource<G> for Arc<Vec<G>>
+where G: Vertex<Scalar = T> + Clone,
+      T: RealField
+{
+    fn get(&self, index: usize) -> Option<G> {
+        self.as_ref().get(index).cloned()
     }
 
-    fn midpoint(&mut self, v1: usize, v2: usize) -> (&G, usize) {
+    fn len(&self) -> usize {
+        self.as_ref().len()
+    }
+}
+
+impl<G, T> IndexedVertexSource<G> for Rc<RefCell<Vec<(G, (usize, usize))>>>
+where G: Vertex<Scalar = T> + Clone
+{
+    fn get(&self, index: usize) -> Option<G> {
+        self.borrow().get(index).cloned().map(|(vertex, _)| vertex)
+    }
+
+    fn len(&self) -> usize {
+        self.borrow().len()
+    }
+}
+
+impl<G, T> IndexedVertexSource<G> for Arc<Mutex<Vec<(G, (usize, usize))>>>
+where G: Vertex<Scalar = T> + Clone
+{
+    fn get(&self, index: usize) -> Option<G> {
+        let guard = self.lock().unwrap();
+        guard.get(index).cloned().map(|(vertex, _)| vertex)
+    }
+
+    fn len(&self) -> usize {
+        let guard = self.lock().unwrap();
+        guard.len()
+    }
+}
+
+trait IndexedVertexSink<G, T> 
+where G: Vertex<Scalar = T>,
+      T: RealField + Clone
+{
+    fn seed(&mut self, vertex: G) -> usize;
+    fn midpoint(&mut self, v1: usize, v2: usize) -> usize;
+}
+
+impl<G, T> IndexedVertexSink<G, T> for Rc<RefCell<Vec<(G, (usize, usize))>>>
+where G: Vertex<Scalar = T> + VertexSource + Clone,
+      T: RealField + Clone
+{
+    fn seed(&mut self, vertex: G) -> usize {
+        let mut guard = self.borrow_mut();
+        let index = guard.len();
+        guard.push((vertex, (index, index)));
+        index
+    }
+
+    fn midpoint(&mut self, v1: usize, v2: usize) -> usize {
         debug_assert_ne!(v1, v2, "Vertices must be different");
-        let id = if v1 < v2 { (v1, v2) } else { (v2, v1) };
-        if let Some(index) = self.map.iter().position(|(_, cid)| id == *cid) {
-            let (vertex, _) = &self.map[index];
-            return (vertex, index)
-        } else {
-            let g1 = self.map[v1].0.clone();
-            let g2 = self.map[v2].0.clone();
-            let midpoint = G::midpoint(&g1, &g2);
-            let index = self.map.len();
-            self.map.push((midpoint, id));
-            let (vertex, echo) = self.map.last().unwrap();
-            debug_assert_eq!(id, *echo, "ID should match the index");
-            (vertex, index)
+        let key = if v1 < v2 { (v1, v2) } else { (v2, v1) };
+        let mut guard = self.borrow_mut();
+        if let Some(index) = guard.iter().position(|(_, k)| *k == key) {
+            return index;
         }
+        let midpoint = G::midpoint(
+            &guard.get(v1).expect("Invalid vertex index").0, 
+            &guard.get(v2).expect("Invalid vertex index").0
+        );
+        let index = guard.len();
+        guard.push((midpoint, key));
+        index
     }
 }
 
-#[derive(Clone)]
-pub struct SharedIndexedVertexCollection<G, T> 
-where G: Vertex<T> + VertexSource<T> + Clone,
-      T: RealField
+impl<G, T> IndexedVertexSink<G, T> for Arc<Mutex<Vec<(G, (usize, usize))>>>
+where G: Vertex<Scalar = T> + VertexSource + Clone,
+      T: RealField + Clone
 {
-    pub(crate) collection: Rc<RefCell<IndexedVertexCollection<G, T>>>
-}
+    fn seed(&mut self, vertex: G) -> usize {
+        let mut guard = self.lock().unwrap();
+        let index = guard.len();
+        guard.push((vertex, (index, index)));
+        index
+    }
 
-impl<G, T> SharedIndexedVertexCollection<G, T> 
-where G: Vertex<T> + VertexSource<T> + Clone,
-      T: RealField
-{
-    pub fn new() -> Self {
-        Self {
-            collection: Rc::new(RefCell::new(IndexedVertexCollection::new())),
+    fn midpoint(&mut self, v1: usize, v2: usize) -> usize {
+        debug_assert_ne!(v1, v2, "Vertices must be different");
+        let key = if v1 < v2 { (v1, v2) } else { (v2, v1) };
+        let mut guard = self.lock().unwrap();
+        if let Some(index) = guard.iter().position(|(_, k)| *k == key) {
+            return index;
         }
-    }
-
-    pub(crate) fn seed(&self, vertex: G) -> (G, usize) {
-        let mut binding = self.collection.borrow_mut();
-        let (vertex, index) = binding.seed(vertex);
-        (vertex.clone(), index)
-    }
-
-    pub(crate) fn midpoint(&self, v1: usize, v2: usize) -> (G, usize) {
-        let mut binding = self.collection.borrow_mut();
-        let (vertex, index) = binding.midpoint(v1, v2);
-        (vertex.clone(), index)
+        let midpoint = G::midpoint(
+            &guard.get(v1).expect("Invalid vertex index").0, 
+            &guard.get(v2).expect("Invalid vertex index").0
+        );
+        let index = guard.len();
+        guard.push((midpoint, key));
+        index
     }
 }
 
-impl<G, T> From<SharedIndexedVertexCollection<G, T>> for Vec<G>
-where G: Vertex<T> + VertexSource<T> + Clone,
-      T: RealField
-{
-    fn from(collection: SharedIndexedVertexCollection<G, T>) -> Self {
-        let binding = collection.collection.borrow();
-        binding.map.iter().map(|(vertex, _)| vertex.clone()).collect()
-    }
-}
-
-pub type CartesianVertexCollection32 = SharedIndexedVertexCollection<CartesianVertex32, f32>;
-pub type CartesianVertexCollection64 = SharedIndexedVertexCollection<CartesianVertex64, f64>;
-
-pub struct SharedVertex<G, T> 
-where G: Vertex<T> + VertexSource<T> + Clone,
-      T: RealField
+pub struct SharedVertex<G, T, C> 
+where G: Vertex<Scalar = T> + VertexSource + Clone,
+      T: RealField + Clone
 {
     index: usize,
-    collection: Rc<RefCell<IndexedVertexCollection<G, T>>>
+    collection: C,
+    _markerg: PhantomData<G>,
+    _markert: PhantomData<T>,
 }
 
-impl<G, T> SharedVertex<G, T> 
-where G: Vertex<T> + VertexSource<T> + Clone,
-      T: RealField
+impl<G, T, C> SharedVertex<G, T, C> 
+where G: Vertex<Scalar = T> + VertexSource + Clone,
+      T: RealField + Clone,
+      C: Default
 {
-    pub fn new(vertex: G, collection: SharedIndexedVertexCollection<G, T>) -> Self {
-        let (vertex, index) = collection.seed(vertex);
+    pub fn new_collection() -> C {
+        C::default()
+    }
+}
+
+impl<G, T, C> SharedVertex<G, T, C> 
+where G: Vertex<Scalar = T> + VertexSource + Clone,
+      T: RealField + Clone,
+      C: IndexedVertexSink<G, T> + IndexedVertexSource<G> + Clone
+{
+    pub fn new(vertex: G, mut collection: C) -> Self {
+        let index = collection.seed(vertex);
         Self {
             index,
-            collection: collection.collection.clone(),
+            collection,
+            _markerg: PhantomData,
+            _markert: PhantomData,
         }
     }
 
-    pub fn vertex(&self) -> G {
-        self.collection.borrow().map[self.index].0.clone()
+    pub fn insert_midpoint(&mut self, other: &Self) -> Self {
+        let index = self.collection.midpoint(self.index(), other.index());
+        Self {
+            index,
+            collection: self.collection.clone(),
+            _markerg: PhantomData,
+            _markert: PhantomData,
+        }
+    }
+}
+
+impl<G, T, C> SharedVertex<G, T, C> 
+where G: Vertex<Scalar = T> + VertexSource + Clone,
+      T: RealField + Clone,
+      C: IndexedVertexSource<G>
+{
+    fn vertex(&self) -> G {
+        self.collection.get(self.index).expect("Invalid vertex index")
     }
 
-    pub fn index(&self) -> usize {
+    fn index(&self) -> usize {
         self.index
     }
 }
 
-impl<G, T> Vertex<T> for SharedVertex<G, T>
-where G: Vertex<T> + VertexSource<T> + Clone,
-      T: RealField
+impl<G, T, C> Vertex for SharedVertex<G, T, C> 
+where G: Vertex<Scalar = T> + VertexSource + Clone,
+      T: RealField + Clone,
+      C: IndexedVertexSource<G>
 {
-    fn project(&self, distance: T) -> Vector3<T> {
-        self.collection.borrow().map[self.index].0.project(distance)
+    type Scalar = T;
+
+    fn project(&self, distance: Self::Scalar) -> Vector3<Self::Scalar> {
+        self.vertex().project(distance)
     }
 }
 
-impl<G, T> VertexSource<T> for SharedVertex<G, T>
-where G: Vertex<T> + VertexSource<T> + Clone,
-      T: RealField
-{
-    fn midpoint(v1: &Self, v2: &Self) -> Self {
-        debug_assert!(Rc::ptr_eq(&v1.collection, &v2.collection), "Vertices must belong to the same collection");
-        let (vertex, index) = v1.collection.borrow_mut().midpoint(v1.index, v2.index);
-        Self {
-            index,
-            collection: v1.collection.clone(),
-        }
-    }
-}
+/// Cartesian shared vertex with an f32 base
+pub type CSV32 = SharedVertex<CartesianVertex32, f32, Rc<RefCell<Vec<(CartesianVertex32, (usize, usize))>>>>;
 
-pub type SharedCartesianVertex32 = SharedVertex<CartesianVertex32, f32>;
-pub type SharedCartesianVertex64 = SharedVertex<CartesianVertex64, f64>;
+/// Cartesian shared vertex with an f64 base
+pub type CSV64 = SharedVertex<CartesianVertex64, f64, Rc<RefCell<Vec<(CartesianVertex64, (usize, usize))>>>>;
+
+/// Atomic cartesian shared vertex with an f32 base
+pub type ACSV32 = SharedVertex<CartesianVertex32, f32, Arc<Mutex<Vec<(CartesianVertex32, (usize, usize))>>>>;
+
+/// Atomic cartesian shared vertex with an f64 base
+pub type ACSV64 = SharedVertex<CartesianVertex64, f64, Arc<Mutex<Vec<(CartesianVertex64, (usize, usize))>>>>;
 
 #[cfg(test)]
 mod tests {
@@ -191,28 +254,38 @@ mod tests {
     #[test]
     fn test_indexed_vertex() {
         // Create an indexed vertex collection
-        let collection = CartesianVertexCollection64::new();
+        let collection = CSV64::new_collection();
 
         // Seed some vertices
-        let v1 = SharedCartesianVertex64::new(CartesianVertex64::new(1.0, 0.0), collection.clone());
-        let v2 = SharedCartesianVertex64::new(CartesianVertex64::new(0.0, 1.0), collection.clone());
+        let mut v1 = CSV64::new(CartesianVertex64::new(1.0, 0.0), collection.clone());
+        let v2 = CSV64::new(CartesianVertex64::new(0.0, 1.0), collection.clone());
 
         // Verify recall
         assert_eq!(v1.vertex(), CartesianVertex64::new(1.0, 0.0));
         assert_eq!(v1.index(), 0);
         assert_eq!(v2.vertex(), CartesianVertex64::new(0.0, 1.0));
         assert_eq!(v2.index(), 1);
+        assert_eq!(collection.len(), 2);
 
         // Midpoint
-        let v3 = SharedCartesianVertex64::midpoint(&v1, &v2);
+        let v3 = v1.insert_midpoint(&v2);
         assert_eq!(v3.vertex(), CartesianVertex64::new(0.5, 0.5));
         assert_eq!(v3.index(), 2);
+        assert_eq!(collection.len(), 3);
 
         // Midpoint again
-        let v4 = SharedCartesianVertex64::midpoint(&v1, &v3);
+        let v4 = v1.insert_midpoint(&v3);
         assert_eq!(v4.vertex(), CartesianVertex64::new(0.75, 0.25));
         assert_eq!(v4.index(), 3);
+        assert_eq!(collection.len(), 4);
 
+        // Attempt to re-insert a midpoint
+        let v5 = v1.insert_midpoint(&v2);
+        assert_eq!(v5.vertex(), CartesianVertex64::new(0.5, 0.5));
+        assert_eq!(v5.index(), v3.index());
+        assert_eq!(collection.len(), 4);
+
+        /* 
         // Verify collection
         let vertices: Vec<CartesianVertex64> = collection.into();
         assert_eq!(vertices.len(), 4);
@@ -220,5 +293,6 @@ mod tests {
         assert_eq!(vertices[1], CartesianVertex64::new(0.0, 1.0));
         assert_eq!(vertices[2], CartesianVertex64::new(0.5, 0.5));
         assert_eq!(vertices[3], CartesianVertex64::new(0.75, 0.25));
+        */
     }
 }
