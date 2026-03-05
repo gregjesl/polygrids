@@ -1,4 +1,3 @@
-use std::{marker::PhantomData, ops::Index};
 use nalgebra::{RealField, Vector2, Vector3};
 use std::{rc::Rc, sync::{Arc, Mutex}, cell::RefCell};
 
@@ -42,7 +41,7 @@ where T: RealField + Clone
     }
 }
 
-trait IndexedVertexSource<G> {
+pub trait IndexedVertexSource<G> {
 
     /// Get a vertex by index
     fn get(&self, index: usize) -> Option<G>;
@@ -103,7 +102,7 @@ where G: Vertex<Scalar = T> + Clone
     }
 }
 
-trait IndexedVertexSink<G, T> 
+pub trait IndexedVertexSink<G, T> 
 where G: Vertex<Scalar = T>,
       T: RealField + Clone
 {
