@@ -55,6 +55,16 @@ impl Ray
 
 impl Eq for Ray {}
 
+impl Ord for Ray
+{
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.lat.partial_cmp(&other.lat) {
+            Some(std::cmp::Ordering::Equal) => self.lon.partial_cmp(&other.lon).unwrap(),
+            ord => ord.unwrap(),
+        }
+    }
+}
+
 impl Hash for Ray
 {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -96,14 +106,6 @@ impl VertexSource<f64> for Ray {
             mid.into()
         }
     }
-
-    fn center(x: &Self, y: &Self, z: &Self) -> Self {
-        let c1 = x.project(1.0);
-        let c2 = y.project(1.0);
-        let c3 = z.project(1.0);
-        let center = (c1 + c2 + c3) / 3.0;
-        center.into()
-    }
 }
 
 #[derive(Clone, PartialEq, PartialOrd)]
@@ -128,8 +130,12 @@ where G: Vertex<F> + VertexSource<F> + PartialOrd + Clone,
         }
     }
 
-    pub fn center(&self) -> G {
-        G::center(&self.vertices[0], &self.vertices[1], &self.vertices[2])
+    pub fn center(&self) -> Vector3<F> {
+        let c1 = self.vertices[0].project(F::one());
+        let c2 = self.vertices[1].project(F::one());
+        let c3 = self.vertices[2].project(F::one());
+        let center = (c1 + c2 + c3) / (F::one() + F::one() + F::one());
+        center.into()
     }
 
     pub fn subdivide(&self) -> [Triangle<G, F>; 4] 

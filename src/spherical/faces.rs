@@ -1,3 +1,5 @@
+use std::{collections::HashSet, ops::Index};
+
 use super::geometry::{Ray, Triangle};
 use crate::{grid::{Vertex, VertexSource}};
 use nalgebra::Vector3;
@@ -6,7 +8,7 @@ use nalgebra::Vector3;
 pub struct Face<G>
 where G: Vertex<f64>
 {
-    triangle: Triangle<G, f64>,
+    pub(crate) triangle: Triangle<G, f64>,
     normal: Vector3<f64>,
 }
 
@@ -33,14 +35,14 @@ impl<G> Face<G>
 where G: Vertex<f64> + VertexSource<f64> + Clone + PartialOrd
 {
     pub fn new(triangle: Triangle<G, f64>) -> Self {
-        let normal = triangle.center().project(1.0).normalize();
+        let normal = triangle.center().normalize();
         Face {
             triangle,
             normal,
         }
     }
 
-    pub fn center(&self) -> G {
+    pub fn center(&self) -> Vector3<f64> {
         self.triangle.center()
     }
 
@@ -52,7 +54,7 @@ where G: Vertex<f64> + VertexSource<f64> + Clone + PartialOrd
 
 /// A face that may have children
 #[derive(Clone)]
-struct FaceBranch<G>
+pub(crate) struct FaceBranch<G>
 where G: Vertex<f64>
 {
     pub face: Face<G>,
@@ -61,7 +63,7 @@ where G: Vertex<f64>
 
 /// A root face that may have children
 #[derive(Clone)]
-struct FaceTree<G>
+pub(crate) struct FaceTree<G>
 where G: Vertex<f64>
 {
     faces: Vec<FaceBranch<G>>,
@@ -78,6 +80,10 @@ impl FaceTree<Ray>
         Self {
             faces: vec![root_branch],
         }
+    }
+
+    pub fn root(&self) -> &Face<Ray> {
+        &self.faces[0].face
     }
 
     fn insert(&mut self, face: Face<Ray>) -> usize {
@@ -111,5 +117,51 @@ impl FaceTree<Ray>
             }
             self.faces[leaf].children = Some(child_indices);
         }
+    }
+
+    // Returns a list of all unique vertices in the tree
+    pub fn vertices(&self) -> HashSet<Ray> {
+        let mut set = HashSet::new();
+        for face in &self.faces {
+            for vertex in face.face.clone().into_iter() {
+                set.insert(vertex);
+            }
+        }
+        set
+    }
+}
+
+impl Index<usize> for FaceTree<Ray>
+{
+    type Output = FaceBranch<Ray>;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.faces[index]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_vertices() {
+        let triangle: Triangle<Ray, f64> = Triangle::new(
+            Vector3::new(1.0, 0.0, 0.0).into(),
+            Vector3::new(0.0, 1.0, 0.0).into(),
+            Vector3::new(0.0, 0.0, 1.0).into()
+        );
+    
+        // Formula = (2^n+1)(2^n+2)/2
+        let mut tree = FaceTree::new(triangle);
+        assert_eq!(tree.vertices().len(), 3);
+        tree.subdivide();
+        assert_eq!(tree.vertices().len(), 6);
+        tree.subdivide();
+        assert_eq!(tree.vertices().len(), 15);
+        tree.subdivide();
+        assert_eq!(tree.vertices().len(), 45);
+        tree.subdivide();
+        assert_eq!(tree.vertices().len(), 153);
     }
 }

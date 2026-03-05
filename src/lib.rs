@@ -259,6 +259,7 @@ mod tests {
         assert_eq!(axis.lookup(4.25), None);
     }
 
+    #[cfg(feature = "rand")]
     #[test]
     fn test_axis_random_sample() {
         let axis = Axis::new(vec![0.0, 1.0, 2.0, 3.0], AxisWrapping::None).unwrap();
