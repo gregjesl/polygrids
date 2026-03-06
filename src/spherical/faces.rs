@@ -24,6 +24,7 @@ impl<C, V> Face<C, V>
 where C: IndexedVertexSource<Scalar = f64, Vertex = V> + IndexedVertexSink<Scalar = f64, Vertex = V> + Clone,
       V: Vertex<Scalar = f64> + VertexSource + PartialOrd + Clone
 {
+    #[allow(dead_code)]
     pub fn new(triangle: Triangle<V, f64>, mut collection: C) -> Self {
         let normal = triangle.center();
         let v0 = collection.seed(triangle[0].clone());

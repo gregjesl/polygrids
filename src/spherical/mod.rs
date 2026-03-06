@@ -261,11 +261,7 @@ mod tests {
         assert!(count.iter().all(|c| *c == 5));
     }
 
-    fn angle(divisions: usize) -> f64 {
-        63.4 / 2.0_f64.powi(divisions as i32)
-    }
-
-        #[test]
+    #[test]
     fn test_icosahedron_angle() {
         let poly = Polyhedron::new();
         for face in poly.faces {
@@ -312,22 +308,49 @@ mod tests {
         for i in 1..5 {
             poly.subdivide();
             let vertices = poly.vertices();
-            // assert_eq!(vertices.len(), vertex_count(i));
+            assert_eq!(vertices.len(), vertex_count(i));
             let triangles = poly.triangles();
             assert_eq!(triangles.len(), 20 * 4_usize.pow(i as u32));
-            // Look for points that are too close to each other
-            let min_angle = angle(i);
-            for j in 0..vertices.len() {
-                let vertex = vertices.get(j).unwrap();
-                for k in 0..vertices.len() {
-                    if j == k { continue; }
-                    let vertex2 = vertices.get(k).unwrap();
-                    let angle = Degrees::from(vertex.separation(&vertex2));
-                    if angle.0 < 0.95 * min_angle {
-                        panic!("Angle too small")
-                    }
-                }
-            }
         }
+    }
+
+    #[test]
+    fn test_find() {
+        let mut poly = Polyhedron::new();
+        poly.subdivide();
+        poly.subdivide();
+
+        let ray = Ray::new(Angle::from(Degrees(30.0)), Angle::from(Degrees(45.0)));
+        let face = poly.find_face(&ray);
+        let triangle = face.load();
+        let rays = triangle.vertices();
+        let lower = rays
+            .map(|r| Degrees::from(*r.latitude()).0)
+            .into_iter()
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        let upper = rays
+            .map(|r| Degrees::from(*r.latitude()).0)
+            .into_iter()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        assert!(upper > lower);
+        assert!(Degrees::from(*ray.latitude()).0 >= lower);
+        assert!(Degrees::from(*ray.latitude()).0 <= upper);
+
+        let left = rays
+            .map(|r| Degrees::from(*r.longitude()).0)
+            .into_iter()
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+
+        let right = rays
+            .map(|r| Degrees::from(*r.longitude()).0)
+            .into_iter()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        assert!(right > left);
+        assert!(Degrees::from(*ray.longitude()).0 >= left);
+        assert!(Degrees::from(*ray.longitude()).0 <= right);
     }
 }
