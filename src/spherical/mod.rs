@@ -2,7 +2,7 @@ mod faces;
 use std::{cell::RefCell, rc::Rc, sync::{Arc, Mutex}};
 use nalgebra::Vector3;
 use crate::{geometry::{SharedTriangle, Triangle}, grid::{IndexedVertexSink, IndexedVertexSource, Vertex, VertexSource}, spherical::faces::FaceTree};
-use angle_sc::{Angle, Degrees};
+use angle_sc::{Angle, Degrees, Radians};
 
 #[cfg(feature = "rand")]
 use rand::Rng;
@@ -34,6 +34,14 @@ impl Ray
     pub fn longitude(&self) -> &Angle
     {
         &self.lon
+    }
+
+    pub fn separation(&self, other: &Self) -> Angle
+    {
+        let v1 = self.project(1.0);
+        let v2 = other.project(1.0);
+        let dotprod = v1.dot(&v2).clamp(-1.0, 1.0);
+        Radians(dotprod.acos()).into()
     }
 
     #[cfg(feature = "rand")]
@@ -157,7 +165,7 @@ impl Polyhedron {
         }
     }
 
-    pub fn triangles(&self) -> Vec<Triangle<Ray, f64>> {
+    pub fn triangles(&self) -> Vec<SharedTriangle<SharedRayCollection>> {
         self.faces.iter()
             .flat_map(|f| f.leaves())
             .collect()
@@ -248,7 +256,7 @@ mod tests {
     }
 
     fn angle(divisions: usize) -> f64 {
-        63.4 / (divisions + 1) as f64
+        63.4 / 2.0_f64.powi(divisions as i32)
     }
 
         #[test]
@@ -267,7 +275,28 @@ mod tests {
     }
     
     const fn vertex_count(d: usize) -> usize {
-        10 * (d + 1).pow(2) + 2
+        10 * 4_usize.pow(d as u32) + 2
+    }
+
+    #[test]
+    fn test_flat_subdivision() {
+        let poly = Polyhedron::new();
+        let triangles = poly.triangles();
+        assert_eq!(triangles.len(), 20);
+        assert_eq!(poly.vertices().borrow().len(), vertex_count(0));
+
+        // Subdivide
+        let d1 = triangles.into_iter()
+            .flat_map(|mut t| t.subdivide4().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(d1.len(), 80);
+        assert_eq!(poly.vertices().borrow().len(), vertex_count(1));
+
+        let d2 = d1.into_iter()
+            .flat_map(|mut t| t.subdivide4().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(d2.len(), 320);
+        assert_eq!(poly.vertices().borrow().len(), vertex_count(2));
     }
 
     #[test]
@@ -284,20 +313,15 @@ mod tests {
             let min_angle = angle(i);
             for j in 0..vertices.len() {
                 let vertex = vertices.get(j).unwrap();
-                let proj1 = vertex.project(1.0);
                 for k in 0..vertices.len() {
                     if j == k { continue; }
                     let vertex2 = vertices.get(k).unwrap();
-                    let proj2 = vertex2.project(1.0);
-                    let dotprod = proj1.dot(&proj2).clamp(-1.0, 1.0);
-                    let angle = dotprod.acos().to_degrees();
-                    if angle < 0.95 * min_angle {
+                    let angle = Degrees::from(vertex.separation(&vertex2));
+                    if angle.0 < 0.95 * min_angle {
                         panic!("Angle too small")
                     }
                 }
             }
         }
-
-        unimplemented!()
     }
 }

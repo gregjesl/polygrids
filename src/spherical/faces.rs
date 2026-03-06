@@ -122,10 +122,10 @@ where C: IndexedVertexSource<Scalar = f64, Vertex = V> + IndexedVertexSink<Scala
             .unwrap()
     }
 
-    pub fn leaves(&self) -> Vec<Triangle<V, f64>> {
+    pub fn leaves(&self) -> Vec<SharedTriangle<C>> {
         self.faces.iter()
             .filter(|f| f.children.is_none())
-            .map(|t| t.face.triangle.load())
+            .map(|f| f.face.triangle.clone())
             .collect()
     }
 

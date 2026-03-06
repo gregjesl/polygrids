@@ -120,6 +120,18 @@ where C: Clone
     pub fn collection(&self) -> &C {
         &self.collection
     }
+
+    pub fn edge_indices(&self) -> [[usize; 2]; 3] {
+        let mut result = [
+            [self.vertices[0], self.vertices[1]],
+            [self.vertices[1], self.vertices[2]],
+            [self.vertices[2], self.vertices[0]],
+        ];
+        for edge in &mut result {
+            edge.sort();
+        }
+        result
+    }
 }
 
 impl<C, V, T> SharedTriangle<C> 
