@@ -19,7 +19,7 @@ pub trait VertexSource
     fn midpoint(x: &Self, y: &Self) -> Self;
 }
 
-pub trait IndexedVertexSource {
+pub trait IndexedVertexSource: Clone {
     type Scalar: RealField + Clone;
     type Vertex: Vertex<Scalar = Self::Scalar>;
 
@@ -28,6 +28,14 @@ pub trait IndexedVertexSource {
 
     /// Get the number of vertices in the source
     fn len(&self) -> usize;
+
+    /// Get an iterator over the vertices in the source
+    fn iter(&self) -> IndexedVertexSourceIter<Self> where Self: Sized {
+        IndexedVertexSourceIter {
+            collection: self.clone(),
+            index: 0,
+        }
+    }
 }
 
 impl<V, T> IndexedVertexSource for Rc<Vec<V>>
@@ -93,6 +101,27 @@ where V: Vertex<Scalar = T> + Clone,
     fn len(&self) -> usize {
         let guard = self.lock().unwrap();
         guard.len()
+    }
+}
+
+pub struct IndexedVertexSourceIter<C> 
+where C: IndexedVertexSource
+{
+    collection: C,
+    index: usize,
+}
+
+impl<C> Iterator for IndexedVertexSourceIter<C> 
+where C: IndexedVertexSource
+{
+    type Item = C::Vertex;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let vertex = self.collection.get(self.index);
+        if vertex.is_some() {
+            self.index += 1;
+        }
+        vertex
     }
 }
 
