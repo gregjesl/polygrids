@@ -1,5 +1,6 @@
 use crate::{geometry::{SharedTriangle, Triangle}, grid::{IndexedVertexSink, IndexedVertexSource, Vertex, VertexSource}};
 use nalgebra::Vector3;
+use std::ops::Index;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Face<C, V>
@@ -66,7 +67,7 @@ where C: IndexedVertexSource<Scalar = f64, Vertex = V> + Clone,
 
 /// A face that may have children
 #[derive(Clone)]
-struct FaceBranch<C, V>
+pub(crate) struct FaceBranch<C, V>
 where C: IndexedVertexSource<Scalar = f64, Vertex = V> + Clone,
       V: Vertex<Scalar = f64> + Clone
 {
@@ -141,6 +142,17 @@ where C: IndexedVertexSource<Scalar = f64, Vertex = V> + IndexedVertexSink<Scala
             }
             self.faces[leaf].children = Some(child_indices);
         }
+    }
+}
+
+impl<C, V> Index<usize> for FaceTree<C, V>
+where C: IndexedVertexSource<Scalar = f64, Vertex = V> + Clone,
+      V: Vertex<Scalar = f64> + Clone
+{
+    type Output = FaceBranch<C, V>;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.faces[index]
     }
 }
 

@@ -1,7 +1,7 @@
 mod faces;
 use std::{cell::RefCell, rc::Rc, sync::{Arc, Mutex}};
 use nalgebra::Vector3;
-use crate::{geometry::{SharedTriangle, Triangle}, grid::{IndexedVertexSink, IndexedVertexSource, Vertex, VertexSource}, spherical::faces::FaceTree};
+use crate::{geometry::SharedTriangle, grid::{IndexedVertexSink, IndexedVertexSource, Vertex, VertexSource}, spherical::faces::{FaceBranch, FaceTree}};
 use angle_sc::{Angle, Degrees, Radians};
 
 #[cfg(feature = "rand")]
@@ -110,12 +110,19 @@ const TRIANGLES: [[usize; 3]; 20] = [
 ];
 
 #[derive(Clone)]
-pub struct Polyhedron {
-    faces: [FaceTree<SharedRayCollection, Ray>; 20],
-    vertices: SharedRayCollection
+pub struct GenericPolyhedron<C>
+where C: IndexedVertexSource<Scalar = f64, Vertex = Ray> + IndexedVertexSink<Scalar = f64, Vertex = Ray> + Clone
+{
+    faces: [FaceTree<C, Ray>; 20],
+    vertices: C
 }
 
-impl Polyhedron {
+pub type Polyhedron = GenericPolyhedron<SharedRayCollection>;
+pub type AtomicPolyhedron = GenericPolyhedron<AtomicRayCollection>;
+
+impl<C> GenericPolyhedron<C>
+where C: IndexedVertexSource<Scalar = f64, Vertex = Ray> + IndexedVertexSink<Scalar = f64, Vertex = Ray> + Clone
+{
     pub fn new() -> Self {
         let phi: f64 = (1.0 + 5.0_f64.sqrt()) / 2.0;
         
@@ -136,7 +143,7 @@ impl Polyhedron {
             Vector3::new(-phi, 0.0, -1.0),
         ];
 
-        let mut collection = SharedRayCollection::new_collection();
+        let mut collection = C::new_collection();
 
         // Map the points to vertices
         points.iter()
@@ -147,7 +154,7 @@ impl Polyhedron {
                 debug_assert_eq!(index, v);
             });
         
-        let faces: [FaceTree<SharedRayCollection, Ray>; 20] = TRIANGLES.into_iter()
+        let faces: [FaceTree<C, Ray>; 20] = TRIANGLES.into_iter()
             .map(|[i1, i2, i3]| {
                 let triangle = SharedTriangle::new(i1, i2, i3, collection.clone());
                 FaceTree::new(triangle)
@@ -165,14 +172,13 @@ impl Polyhedron {
         }
     }
 
-    pub fn triangles(&self) -> Vec<SharedTriangle<SharedRayCollection>> {
+    pub fn triangles(&self) -> Vec<SharedTriangle<C>> {
         self.faces.iter()
             .flat_map(|f| f.leaves())
             .collect()
     }
 
-    /* 
-    fn find_root_face(&self, vec: &Vector3<f64>) -> &FaceTree<Ray> {
+    fn find_root_face(&self, vec: &Vector3<f64>) -> &FaceTree<C, Ray> {
         // Find the root face that maximizes the dot product
         let i = self.faces.iter().enumerate()
             .map(|(i, face_tree)| {
@@ -187,7 +193,7 @@ impl Polyhedron {
         &self.faces[i]
     }
 
-    fn find_leaf(&self, ray: &Ray) -> &FaceBranch<Ray> {
+    fn find_leaf(&self, ray: &Ray) -> &FaceBranch<C, Ray> {
         let vec = ray.project(1.0);
 
         // Load the face tree
@@ -217,13 +223,12 @@ impl Polyhedron {
         &face_tree[leaf_index]
     }
 
-    pub fn find_face(&self, ray: &Ray) -> &[Ray; 3] {
-        let leaf_face = self.find_leaf(ray);
-        leaf_face.face.triangle.vertices()
+    /// Returns the face that the ray intersects
+    pub fn find_face(&self, ray: &Ray) -> SharedTriangle<C> {
+         self.find_leaf(ray).face.triangle().clone()
     }
-    */
 
-    pub fn vertices(&self) -> &SharedRayCollection {
+    pub fn vertices(&self) -> &C {
         &self.vertices
     }
 }
@@ -232,6 +237,7 @@ impl Polyhedron {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grid::IndexedVertexSource;
 
     #[test]
     fn test_icosahedron_seed() {
