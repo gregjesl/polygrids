@@ -218,8 +218,7 @@ where G: Vertex<Scalar = F> + PartialOrd + Clone,
       F: nalgebra::RealField
 {
     pub fn new(v0: G, v1: G, v2: G) -> Self {
-        let mut vertices = [v0, v1, v2];
-        // vertices.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let vertices = [v0, v1, v2];
         Triangle {
             vertices,
         }
@@ -318,6 +317,10 @@ where C: Clone
             vertices,
             collection,
         }
+    }
+
+    pub fn vertices(&self) -> &[usize; 3] {
+        &self.vertices
     }
 
     pub fn collection(&self) -> &C {
