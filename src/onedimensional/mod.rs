@@ -102,6 +102,7 @@ mod tests {
     use super::*;
     use std::rc::Rc;
     use crate::{AxisWrapping, Axis64};
+    use nalgebra::Vector2;
 
     #[test]
     fn test_linear_axis_lookup() {
@@ -151,6 +152,24 @@ mod tests {
         assert_eq!(table.linear_interpolate(1.0), Some(10.0));
         assert_eq!(table.linear_interpolate(2.25), Some(22.5));
         assert_eq!(table.linear_interpolate(3.0), Some(30.0));
+        assert_eq!(table.linear_interpolate(4.0), None);
+    }
+
+    #[test]
+    fn test_linear_interpolation2() {
+        let axis = Rc::new(Axis::new(vec![0.0, 1.0, 2.0, 3.0], AxisWrapping::None).unwrap());
+        let table = LookupTable1D::new(axis, vec![
+            Vector2::new(0.0, 0.0),
+            Vector2::new(1.0, 10.0),
+            Vector2::new(2.0, 20.0),
+            Vector2::new(3.0, 30.0)
+        ]);
+        assert_eq!(table.linear_interpolate(-1.0), None);
+        assert_eq!(table.linear_interpolate(0.0), Some(Vector2::new(0.0, 0.0)));
+        assert_eq!(table.linear_interpolate(0.5), Some(Vector2::new(0.5, 5.0)));
+        assert_eq!(table.linear_interpolate(1.0), Some(Vector2::new(1.0, 10.0)));
+        assert_eq!(table.linear_interpolate(2.25), Some(Vector2::new(2.25, 22.5)));
+        assert_eq!(table.linear_interpolate(3.0), Some(Vector2::new(3.0, 30.0)));
         assert_eq!(table.linear_interpolate(4.0), None);
     }
 }

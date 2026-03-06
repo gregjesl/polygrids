@@ -1,5 +1,6 @@
 pub mod onedimensional;
 pub mod twodimensional;
+pub mod threedimensional;
 
 use nalgebra::RealField;
 use onedimensional::LookupTable1D;
