@@ -174,7 +174,14 @@ mod tests {
         let i0 = collection.seed(v0);
         let i1 = collection.seed(v1);
         let i2 = collection.seed(v2);
-        let triangle = SharedTriangle::new(i0, i1, i2, collection.clone());
+        assert_eq!(collection.len(), 3);
 
+        let mut triangle = SharedTriangle::new(i0, i1, i2, collection.clone());
+        let parts = triangle.subdivide4().unwrap();
+        assert_eq!(collection.len(), 6);
+        for mut part in parts {
+            part.subdivide4();
+        }
+        assert_eq!(collection.len(), 15);
     }
 }

@@ -2,7 +2,7 @@ use crate::{geometry::{SharedTriangle, Triangle}, grid::{IndexedVertexSink, Inde
 use nalgebra::Vector3;
 
 #[derive(Clone, Debug)]
-struct Face<C, V>
+pub(crate) struct Face<C, V>
 where C: IndexedVertexSource<Scalar = f64, Vertex = V> + Clone,
       V: Vertex<Scalar = f64> + Clone
 {
@@ -30,6 +30,10 @@ where C: IndexedVertexSource<Scalar = f64, Vertex = V> + IndexedVertexSink<Scala
         let v2 = collection.seed(triangle[2].clone());
         let shared = SharedTriangle::new(v0, v1, v2, collection);
         Self { triangle: shared, normal }
+    }
+
+    pub fn triangle(&self) -> &SharedTriangle<C> {
+        &self.triangle
     }
 
     pub fn subdivide4(&mut self) -> Option<[Face<C, V>; 4]> {
@@ -118,6 +122,13 @@ where C: IndexedVertexSource<Scalar = f64, Vertex = V> + IndexedVertexSink<Scala
             .unwrap()
     }
 
+    pub fn leaves(&self) -> Vec<Triangle<V, f64>> {
+        self.faces.iter()
+            .filter(|f| f.children.is_none())
+            .map(|t| t.face.triangle.load())
+            .collect()
+    }
+
     pub fn subdivide(&mut self)
     {
         for leaf in self.leaf_start()..self.faces.len() {
@@ -167,5 +178,60 @@ mod tests {
         assert_eq!(collection.len(), 45);
         tree.subdivide();
         assert_eq!(collection.len(), 153);
+    }
+
+    #[test]
+    fn test_square() {
+        let middle: Ray = Vector3::new(1.0, 0.0, 0.0).into();
+        let east: Ray = Vector3::new(0.0, 1.0, 0.0).into();
+        let west: Ray = Vector3::new(0.0, -1.0, 0.0).into();
+        let north: Ray = Vector3::new(0.0, 0.0, 1.0).into();
+
+        let mut collection = SharedRayCollection::new_collection();
+        collection.seed(middle);
+        collection.seed(east);
+        collection.seed(west);
+        collection.seed(north);
+
+        let t1 = SharedTriangle::new(0, 1, 3, collection.clone());
+        let t2 = SharedTriangle::new(0, 2, 3, collection.clone());
+        let mut f1 = FaceTree::new(t1);
+        let mut f2 = FaceTree::new(t2);
+        assert_eq!(collection.len(), 4);
+
+        f1.subdivide();
+        f2.subdivide();
+        assert_eq!(collection.len(), 9);
+
+        f1.subdivide();
+        f2.subdivide();
+        assert_eq!(collection.len(), 25);
+    }
+
+    #[test]
+    fn test_leaves() {
+        let triangle: Triangle<Ray, f64> = Triangle::new(
+            Vector3::new(1.0, 0.0, 0.0).into(),
+            Vector3::new(0.0, 1.0, 0.0).into(),
+            Vector3::new(0.0, 0.0, 1.0).into()
+        );
+        
+        let mut collection = SharedRayCollection::new_collection();
+        let v0 = collection.seed(triangle[0]);
+        let v1 = collection.seed(triangle[1]);
+        let v2 = collection.seed(triangle[2]);
+        let shared = SharedTriangle::new(v0, v1, v2, collection.clone());
+        let echo = shared.load();
+        for i in 0..3 {
+            assert_eq!(triangle[i], echo[i]);
+        }
+    
+        // Formula = (2^n+1)(2^n+2)/2
+        let mut tree = FaceTree::new(shared);
+        assert_eq!(tree.leaves().len(), 1);
+        for i in 1..6 {
+            tree.subdivide();
+            assert_eq!(tree.leaves().len(), 4_usize.pow(i));
+        }
     }
 }

@@ -236,6 +236,11 @@ mod tests {
         let (v3_flip, i3_flip) = collection.midpoint(i2, i1).unwrap();
         assert_eq!(v3_flip, v3);
         assert_eq!(i3_flip, i3);
+        assert_eq!(collection.len(), 3);
+        let (v3_echo, i3_echo) = collection.midpoint(i1, i2).unwrap();
+        assert_eq!(v3_echo, CartesianVertex64::new(0.5, 0.5));
+        assert_eq!(i3_echo, 2);
+        assert_eq!(collection.len(), 3);
 
         // Midpoint again
         let (v4, i4) = collection.midpoint(i1, i3).unwrap();

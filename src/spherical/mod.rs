@@ -1,8 +1,7 @@
 mod faces;
 use std::{cell::RefCell, rc::Rc, sync::{Arc, Mutex}};
-
 use nalgebra::Vector3;
-use crate::grid::{Vertex, VertexSource, IndexedVertexSource, IndexedVertexSink};
+use crate::{geometry::{SharedTriangle, Triangle}, grid::{IndexedVertexSink, IndexedVertexSource, Vertex, VertexSource}, spherical::faces::FaceTree};
 use angle_sc::{Angle, Degrees};
 
 #[cfg(feature = "rand")]
@@ -92,13 +91,20 @@ impl VertexSource for Ray {
     }
 }
 
-type SharedRayCollection = Rc<RefCell<Vec<(Ray, (usize, usize))>>>;
-type AtomicRayCollection = Arc<Mutex<Vec<(Ray, (usize, usize))>>>;
+pub type SharedRayCollection = Rc<RefCell<Vec<(Ray, (usize, usize))>>>;
+pub type AtomicRayCollection = Arc<Mutex<Vec<(Ray, (usize, usize))>>>;
 
-/* 
+const TRIANGLES: [[usize; 3]; 20] = [
+    [0, 1, 8],  [0, 1, 9],  [0, 4, 5],  [0, 4, 8], [0, 5, 9],  
+    [1, 6, 7],  [1, 6, 8],  [1, 7, 9],  [2, 3, 10], [2, 3, 11],
+    [2, 4, 5],  [2, 4, 10], [2, 5, 11],  [3, 7, 11], [3, 6, 7],
+    [3, 6, 10], [4, 8, 10], [5, 9, 11], [6, 8, 10], [7, 9, 11],
+];
+
 #[derive(Clone)]
 pub struct Polyhedron {
-    faces: [FaceTree<Ray>; 20],
+    faces: [FaceTree<SharedRayCollection, Ray>; 20],
+    vertices: SharedRayCollection
 }
 
 impl Polyhedron {
@@ -122,28 +128,27 @@ impl Polyhedron {
             Vector3::new(-phi, 0.0, -1.0),
         ];
 
-        // Map the points to vertices
-        let rays: Vec<Ray> = points.into_iter()
-            .map(|vec: Vector3<f64>| vec.into())
-            .collect();
+        let mut collection = SharedRayCollection::new_collection();
 
-        const TRIANGLES: [[usize; 3]; 20] = [
-            [0, 1, 8],  [0, 1, 9],  [0, 4, 5],  [0, 4, 8], [0, 5, 9],  
-            [1, 6, 7],  [1, 6, 8],  [1, 7, 9],  [2, 3, 10], [2, 3, 11],
-            [2, 4, 5],  [2, 4, 10], [2, 5, 11],  [3, 7, 11], [3, 6, 7],
-            [3, 6, 10], [4, 8, 10], [5, 9, 11], [6, 8, 10], [7, 9, 11],
-        ];
+        // Map the points to vertices
+        points.iter()
+            .enumerate()
+            .for_each(|(v, p)| {
+                let ray: Ray = p.clone().into();
+                let index = collection.seed(ray);
+                debug_assert_eq!(index, v);
+            });
         
-        let faces: [FaceTree<Ray>; 20] = TRIANGLES.into_iter()
+        let faces: [FaceTree<SharedRayCollection, Ray>; 20] = TRIANGLES.into_iter()
             .map(|[i1, i2, i3]| {
-                let triangle = Triangle::new(rays[i1].clone(), rays[i2].clone(), rays[i3].clone());
+                let triangle = SharedTriangle::new(i1, i2, i3, collection.clone());
                 FaceTree::new(triangle)
             })
             .collect::<Vec<_>>()
             .try_into()
             .unwrap_or_else(|_| panic!("Could not convert to array"));
 
-        Self { faces }
+        Self { faces, vertices: collection }
     }
 
     pub fn subdivide(&mut self) {
@@ -152,6 +157,13 @@ impl Polyhedron {
         }
     }
 
+    pub fn triangles(&self) -> Vec<Triangle<Ray, f64>> {
+        self.faces.iter()
+            .flat_map(|f| f.leaves())
+            .collect()
+    }
+
+    /* 
     fn find_root_face(&self, vec: &Vector3<f64>) -> &FaceTree<Ray> {
         // Find the root face that maximizes the dot product
         let i = self.faces.iter().enumerate()
@@ -201,14 +213,10 @@ impl Polyhedron {
         let leaf_face = self.find_leaf(ray);
         leaf_face.face.triangle.vertices()
     }
+    */
 
-    pub fn vertices(&self) -> HashSet<Ray> {
-        let mut set = HashSet::new();
-        for face_tree in &self.faces {
-            let faceset = face_tree.vertices();
-            set.extend(&faceset);
-        }
-        set
+    pub fn vertices(&self) -> &SharedRayCollection {
+        &self.vertices
     }
 }
 
@@ -216,20 +224,80 @@ impl Polyhedron {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_icosahedron_seed() {
+        let mut count: [usize; 12] = [0; 12];
+        for triangle in TRIANGLES {
+            for vertex in triangle {
+                count[vertex] += 1;
+            }
+        }
+        assert!(count.iter().all(|c| *c == 5));
+    }
+
+    #[test]
+    fn test_icosahedron_distribution() {
+        let mut count: [usize; 12] = [0; 12];
+        for triangle in TRIANGLES {
+            for vertex in triangle {
+                count[vertex] += 1;
+            }
+        }
+        assert!(count.iter().all(|c| *c == 5));
+    }
+
+    fn angle(divisions: usize) -> f64 {
+        63.4 / (divisions + 1) as f64
+    }
+
+        #[test]
+    fn test_icosahedron_angle() {
+        let poly = Polyhedron::new();
+        for face in poly.faces {
+            let triangle = face.root().triangle().load();
+            let v0 = triangle.vertices()[0].project(1.0);
+            let v1 = triangle.vertices()[1].project(1.0);
+            let v2 = triangle.vertices()[2].project(1.0);
+            let theta0 = v0.dot(&v1).acos().to_degrees();
+            let theta1 = v1.dot(&v2).acos().to_degrees();
+            let theta2 = v2.dot(&v0).acos().to_degrees();
+            assert!([theta0, theta1, theta2].iter().all(|a| *a > 63.0 && *a < 64.0));
+        }
+    }
     
     const fn vertex_count(d: usize) -> usize {
         10 * (d + 1).pow(2) + 2
     }
 
     #[test]
-    fn test_vertices() {
+    fn test_subdivision() {
         let mut poly = Polyhedron::new();
     
-        for i in 0..5 {
-            let vertices = poly.vertices();
-            assert_eq!(vertices.len(), vertex_count(i));
+        for i in 1..5 {
             poly.subdivide();
+            let vertices = poly.vertices();
+            // assert_eq!(vertices.len(), vertex_count(i));
+            let triangles = poly.triangles();
+            assert_eq!(triangles.len(), 20 * 4_usize.pow(i as u32));
+            // Look for points that are too close to each other
+            let min_angle = angle(i);
+            for j in 0..vertices.len() {
+                let vertex = vertices.get(j).unwrap();
+                let proj1 = vertex.project(1.0);
+                for k in 0..vertices.len() {
+                    if j == k { continue; }
+                    let vertex2 = vertices.get(k).unwrap();
+                    let proj2 = vertex2.project(1.0);
+                    let dotprod = proj1.dot(&proj2).clamp(-1.0, 1.0);
+                    let angle = dotprod.acos().to_degrees();
+                    if angle < 0.95 * min_angle {
+                        panic!("Angle too small")
+                    }
+                }
+            }
         }
+
+        unimplemented!()
     }
 }
-    */
