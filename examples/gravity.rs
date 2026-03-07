@@ -44,8 +44,6 @@ fn j2(settings: &Args, point: Vector3<f64>) -> Vector3<f64> {
     let r = point.norm();
     let z = point.z;
 
-    let point_accel = -settings.mu * point / r.powi(3);
-
     let factor = -settings.mu * settings.radius.powi(2) * settings.j2 / r.powi(5);
     let j2_accel = Vector3::new(
         7.5 * (z / r).powi(2) - 1.5 * point.x / r,
@@ -65,7 +63,7 @@ fn main() {
     let axis = Axis64::linear(settings.min + settings.radius, settings.max + settings.radius, settings.radial).unwrap();
 
     let field = SphericalField::new(
-        settings.subdivisions, axis.clone(), |ray, r| {
+        settings.subdivisions, axis.clone(), |_, _, ray, r| {
             j2(&settings, ray.project(r))
     });
 

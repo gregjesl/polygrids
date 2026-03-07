@@ -131,6 +131,14 @@ where T: RealField + Copy
         result
     }
 
+    pub fn width(&self) -> T {
+        self.width
+    }
+
+    pub fn vertices(&self) -> &Rc<RefCell<Vec<(Vector2<T>, (usize, usize))>>> {
+        &self.vertices
+    }
+
     pub fn subdivide(&mut self) {
         let mut new_triangles = Vec::with_capacity(self.triangles.len() * 4);
         for triangle in self.triangles.iter_mut() {

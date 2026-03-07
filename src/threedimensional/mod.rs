@@ -35,7 +35,7 @@ where T: Clone
     /// use polygrids::{Axis64, twodimensional::{Vertex, IndexedVertexSource}, threedimensional::SphericalField};
     /// 
     /// let axis = Axis64::linear(1.0, 10.0, 10).unwrap();
-    /// let field = SphericalField::new(2, axis.clone(), {|ray, r|
+    /// let field = SphericalField::new(2, axis.clone(), {|_, _, ray, r|
     ///     ray.project(r)
     /// });
     /// 
@@ -52,43 +52,22 @@ where T: Clone
     /// }
     /// ```
     pub fn new<F>(subdivisions: usize, radial_axis: Axis64, fill: F) -> Self 
-    where F: Fn(Ray, f64) -> T
+    where F: Fn(usize, usize, Ray, f64) -> T
     {
         let mut polyhedron = Polyhedron::new();
         for _ in 0..subdivisions {
             polyhedron.subdivide();
         }
 
+        let points = polyhedron.collection().len() * radial_axis.points().len();
         let axisrc = Rc::new(radial_axis);
 
-        #[cfg(not(feature = "progress"))]
-        {
-            let columns = polyhedron.collection().iter()
-                .map(|v| LookupTable1D::fill(axisrc.clone(), |r| fill(v.clone(), r)))
-                .collect();
+        let columns = polyhedron.collection().iter()
+            .enumerate()
+            .map(|(i, v)| LookupTable1D::fill(axisrc.clone(), |r| fill(i, points, v.clone(), r)))
+            .collect();
 
-            SphericalField { polyhedron, columns }
-        }
-
-        #[cfg(feature = "progress")]
-        {
-            use indicatif::{ProgressBar, ProgressStyle};
-            let bar = ProgressBar::new(polyhedron.collection().len() as u64);
-            bar.set_style(ProgressStyle::with_template("{msg} {eta}: {bar}").unwrap());
-            bar.set_message("Filling scalar field");
-            bar.finish_and_clear();
-            let columns = polyhedron.collection().iter()
-                .map(|v| {
-                    let result = LookupTable1D::fill(axisrc.clone(), |r| fill(v.clone(), r));
-                    bar.inc(1);
-                    result
-                })
-                .collect();
-            
-            bar.finish_and_clear();
-
-            SphericalField { polyhedron, columns }
-        }
+        SphericalField { polyhedron, columns }
     }
 
     /// Create a spherical field using a fill function. The fill function is called using a parallel iterator. 
@@ -96,7 +75,7 @@ where T: Clone
     /// See [`SphericalField::new()`] for more details.  
     #[cfg(feature = "parallel")]
     pub fn parallel_new<F>(subdivisions: usize, radial_axis: Axis64, fill: F) -> Self 
-    where F: Fn(Ray, f64) -> T + std::marker::Sync,
+    where F: Fn(usize, usize, Ray, f64) -> T + std::marker::Sync,
           T: Send
     {
         // Create the polyhedron
@@ -109,10 +88,12 @@ where T: Clone
 
         // Build the work queue
         let queue: Vec<Ray> = polyhedron.collection().iter().collect();
+        let points = queue.len();
         let values: Vec<Vec<T>> = queue.par_iter()
-            .map(|ray| {
+            .enumerate()
+            .map(|(i, ray)| {
                 radial_axis.points().iter().map(|r| {
-                    fill(*ray,*r)
+                    fill(i, points, *ray,*r)
                 }).collect()
             })
             .collect();
@@ -207,11 +188,11 @@ mod tests {
     #[test]
     fn test_parallel() {
         let axis = Axis64::linear(1.0, 10.0, 10).unwrap();
-        let field = SphericalField::new(2, axis.clone(), {|ray, r| 
+        let field = SphericalField::new(2, axis.clone(), {|_, _, ray, r| 
             ray.project(r)
         });
 
-        let field_parallel = SphericalField::parallel_new(2, axis.clone(), {|ray, r| 
+        let field_parallel = SphericalField::parallel_new(2, axis.clone(), {|_, _, ray, r| 
             ray.project(r)
         });
 
