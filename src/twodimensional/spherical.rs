@@ -315,6 +315,10 @@ impl Polyhedron {
         Self { faces, vertices: collection, subdivisions: 0 }
     }
 
+    pub fn subdivisions(&self) -> usize {
+        self.subdivisions
+    }
+
     pub fn triangles(&self) -> Vec<SharedTriangle<SharedRayCollection>> {
         self.faces.iter()
             .flat_map(|f| f.leaves())
@@ -382,6 +386,7 @@ impl Polyhedron {
             bar.inc(1);
         });
         bar.finish_and_clear();
+        self.subdivisions += 1;
     }
 
     #[cfg(not(feature = "progress"))]
@@ -389,6 +394,7 @@ impl Polyhedron {
         self.faces.iter_mut().for_each(|face| {
             face.subdivide();
         });
+        self.subdivisions += 1;
     }
 
     pub fn collection(&self) -> &SharedRayCollection {
