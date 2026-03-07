@@ -291,6 +291,10 @@ pub struct Polyhedron {
 }
 
 impl Polyhedron {
+    pub fn vertex_count(divisions: usize) -> usize {
+        10 * 4_usize.pow(divisions as u32) + 2
+    }
+
     pub fn new() -> Self {
         let mut collection = SharedRayCollection::new_collection();
 
@@ -375,26 +379,31 @@ impl Polyhedron {
          self.find_leaf(ray).face.triangle().clone()
     }
 
-    #[cfg(feature = "progress")]
-    pub fn subdivide(&mut self) {
-        use indicatif::{ProgressBar, ProgressStyle};
-        let bar = ProgressBar::new(20);
-        bar.set_style(ProgressStyle::with_template("{msg} {eta}: {bar}").unwrap());
-        bar.set_message("Subdividing polyhedron");
-        self.faces.iter_mut().for_each(|face| {
+    pub fn subdivide_with_progress<F>(&mut self, callback: F)
+    where F: Fn(usize, usize) {
+        // Allocate space
+        let current = self.collection().len();
+        debug_assert_eq!(Self::vertex_count(self.subdivisions), current);
+        let next = Self::vertex_count(self.subdivisions + 1);
+        let delta = next - current;
+        self.vertices.reserve(delta);
+
+        // Perform the first callback
+        callback(0, 20);
+
+        // Perform the subdivision
+        self.faces.iter_mut().enumerate().for_each(|(i, face)| {
             face.subdivide();
-            bar.inc(1);
+            callback(i, 20);
         });
-        bar.finish_and_clear();
+
+        // Increment
         self.subdivisions += 1;
+        debug_assert_eq!(Self::vertex_count(self.subdivisions), self.collection().len());
     }
 
-    #[cfg(not(feature = "progress"))]
     pub fn subdivide(&mut self) {
-        self.faces.iter_mut().for_each(|face| {
-            face.subdivide();
-        });
-        self.subdivisions += 1;
+        self.subdivide_with_progress(|_,_| { });
     }
 
     pub fn collection(&self) -> &SharedRayCollection {
