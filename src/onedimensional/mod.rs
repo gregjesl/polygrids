@@ -18,6 +18,10 @@ where G: RealField + Copy + From<f32>
         LookupTable1D { axis, values }
     }
 
+    pub fn get(&self, index: usize) -> Option<&T> {
+        self.values.get(index)
+    }
+
     pub fn fill<F>(axis: Rc<Axis<G>>, source: F) -> Self
     where F: Fn(G) -> T
     {
