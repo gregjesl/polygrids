@@ -284,24 +284,45 @@ fn icosahedron_vertices() -> [Vector3<f64>; 12] {
     ]
 }
 
-pub trait Polyhedral
-{
-    type Collection: IndexedVertexSource<Scalar = f64, Vertex = Ray> + IndexedVertexSink<Scalar = f64, Vertex = Ray> + Clone;
+pub struct Polyhedron {
+    faces: [FaceTree<SharedRayCollection, Ray>; 20],
+    vertices: SharedRayCollection    
+}
 
-    fn new() -> Self;
-    fn root_faces(&self) -> &[FaceTree<Self::Collection, Ray>; 20];
-    fn subdivide(&mut self);
-    fn collection(&self) -> &Self::Collection;
+impl Polyhedron {
+    pub fn new() -> Self {
+        let mut collection = SharedRayCollection::new_collection();
 
-    fn triangles(&self) -> Vec<SharedTriangle<Self::Collection>> {
-        self.root_faces().iter()
+        // Map the points to vertices
+        icosahedron_vertices().iter()
+            .enumerate()
+            .for_each(|(v, p)| {
+                let ray: Ray = p.clone().into();
+                let index = collection.seed(ray);
+                debug_assert_eq!(index, v);
+            });
+        
+        let faces: [FaceTree<SharedRayCollection, Ray>; 20] = TRIANGLES.into_iter()
+            .map(|[i1, i2, i3]| {
+                let triangle = SharedTriangle::new(i1, i2, i3, collection.clone());
+                FaceTree::new(triangle)
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap_or_else(|_| panic!("Could not convert to array"));
+
+        Self { faces, vertices: collection }
+    }
+
+    pub fn triangles(&self) -> Vec<SharedTriangle<SharedRayCollection>> {
+        self.faces.iter()
             .flat_map(|f| f.leaves())
             .collect()
     }
 
-    fn find_root_face(&self, vec: &Vector3<f64>) -> &FaceTree<Self::Collection, Ray> {
+    fn find_root_face(&self, vec: &Vector3<f64>) -> &FaceTree<SharedRayCollection, Ray> {
         // Find the root face that maximizes the dot product
-        let i = self.root_faces().iter().enumerate()
+        let i = self.faces.iter().enumerate()
             .map(|(i, face_tree)| {
                 let root_face = face_tree.root();
                 let dot = root_face.dot_normal(&vec);
@@ -311,10 +332,10 @@ pub trait Polyhedral
             .map(|(i, _)| i)
             .unwrap();
 
-        &self.root_faces()[i]
+        &self.faces[i]
     }
 
-    fn find_leaf(&self, ray: &Ray) -> &FaceBranch<Self::Collection, Ray> {
+    fn find_leaf(&self, ray: &Ray) -> &FaceBranch<SharedRayCollection, Ray> {
         let vec = ray.project(1.0);
 
         // Load the face tree
@@ -345,113 +366,15 @@ pub trait Polyhedral
     }
 
     /// Returns the face that the ray intersects
-    fn find_face(&self, ray: &Ray) -> SharedTriangle<Self::Collection> {
+    pub fn find_face(&self, ray: &Ray) -> SharedTriangle<SharedRayCollection> {
          self.find_leaf(ray).face.triangle().clone()
     }
-}
 
-#[derive(Clone)]
-pub struct Polyhedron
-{
-    faces: [FaceTree<SharedRayCollection, Ray>; 20],
-    vertices: SharedRayCollection
-}
-
-impl Polyhedral for Polyhedron 
-{
-    type Collection = SharedRayCollection;
-
-    fn new() -> Self {
-        
-        let mut collection = SharedRayCollection::new_collection();
-
-        // Map the points to vertices
-        icosahedron_vertices().iter()
-            .enumerate()
-            .for_each(|(v, p)| {
-                let ray: Ray = p.clone().into();
-                let index = collection.seed(ray);
-                debug_assert_eq!(index, v);
-            });
-        
-        let faces: [FaceTree<SharedRayCollection, Ray>; 20] = TRIANGLES.into_iter()
-            .map(|[i1, i2, i3]| {
-                let triangle = SharedTriangle::new(i1, i2, i3, collection.clone());
-                FaceTree::new(triangle)
-            })
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap_or_else(|_| panic!("Could not convert to array"));
-
-        Self { faces, vertices: collection }
-    }
-
-    fn root_faces(&self) -> &[FaceTree<SharedRayCollection, Ray>; 20] {
-        &self.faces
-    }
-
-    fn subdivide(&mut self) {
+    pub fn subdivide(&mut self) {
         self.faces.iter_mut().for_each(|face| face.subdivide());
     }
 
-    fn collection(&self) -> &SharedRayCollection {
-        &self.vertices
-    }
-}
-
-
-#[derive(Clone)]
-pub struct AtomicPolyhedron
-{
-    faces: [FaceTree<AtomicRayCollection, Ray>; 20],
-    vertices: AtomicRayCollection
-}
-
-impl Polyhedral for AtomicPolyhedron 
-{
-    type Collection = AtomicRayCollection;
-
-    fn new() -> Self {
-        
-        let mut collection = AtomicRayCollection::new_collection();
-
-        // Map the points to vertices
-        icosahedron_vertices().iter()
-            .enumerate()
-            .for_each(|(v, p)| {
-                let ray: Ray = p.clone().into();
-                let index = collection.seed(ray);
-                debug_assert_eq!(index, v);
-            });
-        
-        let faces: [FaceTree<AtomicRayCollection, Ray>; 20] = TRIANGLES.into_iter()
-            .map(|[i1, i2, i3]| {
-                let triangle = SharedTriangle::new(i1, i2, i3, collection.clone());
-                FaceTree::new(triangle)
-            })
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap_or_else(|_| panic!("Could not convert to array"));
-
-        Self { faces, vertices: collection }
-    }
-
-    fn root_faces(&self) -> &[FaceTree<AtomicRayCollection, Ray>; 20] {
-        &self.faces
-    }
-
-    #[cfg(feature = "parallel")]
-    fn subdivide(&mut self) {
-        use rayon::prelude::*;
-        self.faces.par_iter_mut().for_each(|face| face.subdivide());
-    }
-
-    #[cfg(not(feature = "parallel"))]
-    fn subdivide(&mut self) {
-        self.faces.iter_mut().for_each(|face| face.subdivide());
-    }
-
-    fn collection(&self) -> &AtomicRayCollection {
+    pub fn collection(&self) -> &SharedRayCollection {
         &self.vertices
     }
 }

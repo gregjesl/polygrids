@@ -1,28 +1,19 @@
+use std::rc::Rc;
 use nalgebra::{Vector3, Matrix3};
-
 use crate::{
     Axis64,
     onedimensional::LookupTable1D,
-    twodimensional::{Vertex, IndexedVertexSource, IndexedVertexSink, spherical::{Ray, Polyhedron, AtomicPolyhedron, Polyhedral, SharedRayCollection, AtomicRayCollection}}
-};
-use std::{
-    rc::Rc,
-    ops::{Add, Mul}
+    twodimensional::{Vertex, IndexedVertexSource, spherical::{Ray, Polyhedron}}
 };
 
-pub struct SphericalField<P, C, T> 
-where P: Polyhedral<Collection = C>, 
-      C: IndexedVertexSource<Scalar = f64, Vertex = Ray> + IndexedVertexSink<Scalar = f64, Vertex = Ray> + Clone, 
-      T: Clone
+pub struct SphericalField<T> 
 {
-    polyhedron: P,
+    polyhedron: Polyhedron,
     columns: Vec<LookupTable1D<f64, T>>,
 }
 
-impl<P,C,T> SphericalField<P, C, T> 
-where P: Polyhedral<Collection = C>, 
-      C: IndexedVertexSource<Scalar = f64, Vertex = Ray> + IndexedVertexSink<Scalar = f64, Vertex = Ray> + Clone, 
-      T: Clone
+impl<T> SphericalField<T> 
+where T: Clone
 {
 
     /// Create a spherical field using a fill function
@@ -34,12 +25,13 @@ where P: Polyhedral<Collection = C>,
     pub fn new<F>(subdivisions: usize, radial_axis: Axis64, fill: F) -> Self 
     where F: Fn(Ray, f64) -> T
     {
-        let mut polyhedron = P::new();
+        let mut polyhedron = Polyhedron::new();
         for _ in 0..subdivisions {
             polyhedron.subdivide();
         }
+
         let axisrc = Rc::new(radial_axis);
-        
+
         let columns = polyhedron.collection().iter()
             .map(|v| LookupTable1D::fill(axisrc.clone(), |r| fill(v.clone(), r)))
             .collect();
@@ -48,10 +40,7 @@ where P: Polyhedral<Collection = C>,
     }
 }
 
-impl<P, C> SphericalField<P, C, f64>
-where P: Polyhedral<Collection = C>, 
-      C: IndexedVertexSource<Scalar = f64, Vertex = Ray> + IndexedVertexSink<Scalar = f64, Vertex = Ray> + Clone
-{
+impl SphericalField<f64> {
     pub fn interpolate(&self, ray: &Ray, radius: f64) -> Option<f64> {
         // Find the face
         let face = self.polyhedron.find_face(ray);
@@ -78,12 +67,7 @@ where P: Polyhedral<Collection = C>,
     }
 }
 
-pub type ScalarSphericalField = SphericalField<Polyhedron, SharedRayCollection, f64>;
-pub type AtomicScalarSphericalField = SphericalField<AtomicPolyhedron, AtomicRayCollection, f64>;
-
-impl<P, C> SphericalField<P, C, Vector3<f64>>
-where P: Polyhedral<Collection = C>, 
-      C: IndexedVertexSource<Scalar = f64, Vertex = Ray> + IndexedVertexSink<Scalar = f64, Vertex = Ray> + Clone
+impl SphericalField<Vector3<f64>>
 {
     pub fn interpolate(&self, ray: &Ray, radius: f64) -> Option<Vector3<f64>> {
         // Find the face
@@ -110,6 +94,3 @@ where P: Polyhedral<Collection = C>,
         return Some((point.transpose() * coefficients).transpose());
     }
 }
-
-pub type ScalarSpherical3 = SphericalField<Polyhedron, SharedRayCollection, Vector3<f64>>;
-pub type AtomicScalarSpherical3 = SphericalField<AtomicPolyhedron, AtomicRayCollection, Vector3<f64>>;

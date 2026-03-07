@@ -1,9 +1,8 @@
 use nalgebra::Vector3;
 use clap::Parser;
 use polygrids::{
-    Axis64, threedimensional::{AtomicScalarSpherical3, ScalarSpherical3, SphericalField}, twodimensional::{Vertex, spherical::Ray}
+    Axis64, threedimensional::{SphericalField}, twodimensional::{Vertex, spherical::Ray}
 };
-use rand::Rng;
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -65,7 +64,7 @@ fn main() {
 
     let axis = Axis64::linear(settings.min + settings.radius, settings.max + settings.radius, settings.radial).unwrap();
 
-    let field = ScalarSpherical3::new(
+    let field = SphericalField::new(
         settings.subdivisions, axis.clone(), |ray, r| {
             j2(&settings, ray.project(r))
     });
