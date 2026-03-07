@@ -8,6 +8,7 @@ nalgebra = "0.34.1"
 angle-sc = "1.1.4"
 rand = { version = "0.10.0", optional = true }
 rayon = { version = "1.11.0", optional = true }
+indicatif = { version = "0.18.4", optional = true }
 
 [dev-dependencies]
 clap = { version = "4.5.60", features = ["derive"] }
@@ -15,6 +16,7 @@ clap = { version = "4.5.60", features = ["derive"] }
 [features]
 rand = ["dep:rand"]
 parallel = ["dep:rayon"]
+progress = ["dep:indicatif"]
 default = ["rand", "parallel"]
 
 [[example]]

@@ -61,11 +61,34 @@ where T: Clone
 
         let axisrc = Rc::new(radial_axis);
 
-        let columns = polyhedron.collection().iter()
-            .map(|v| LookupTable1D::fill(axisrc.clone(), |r| fill(v.clone(), r)))
-            .collect();
+        #[cfg(not(feature = "progress"))]
+        {
+            let columns = polyhedron.collection().iter()
+                .map(|v| LookupTable1D::fill(axisrc.clone(), |r| fill(v.clone(), r)))
+                .collect();
 
-        SphericalField { polyhedron, columns }
+            SphericalField { polyhedron, columns }
+        }
+
+        #[cfg(feature = "progress")]
+        {
+            use indicatif::{ProgressBar, ProgressStyle};
+            let bar = ProgressBar::new(polyhedron.collection().len() as u64);
+            bar.set_style(ProgressStyle::with_template("{msg} {eta}: {bar}").unwrap());
+            bar.set_message("Filling scalar field");
+            bar.finish_and_clear();
+            let columns = polyhedron.collection().iter()
+                .map(|v| {
+                    let result = LookupTable1D::fill(axisrc.clone(), |r| fill(v.clone(), r));
+                    bar.inc(1);
+                    result
+                })
+                .collect();
+            
+            bar.finish_and_clear();
+
+            SphericalField { polyhedron, columns }
+        }
     }
 
     /// Create a spherical field using a fill function. The fill function is called using a parallel iterator. 

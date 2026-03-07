@@ -286,7 +286,8 @@ fn icosahedron_vertices() -> [Vector3<f64>; 12] {
 
 pub struct Polyhedron {
     faces: [FaceTree<SharedRayCollection, Ray>; 20],
-    vertices: SharedRayCollection    
+    vertices: SharedRayCollection,
+    subdivisions: usize
 }
 
 impl Polyhedron {
@@ -311,7 +312,7 @@ impl Polyhedron {
             .try_into()
             .unwrap_or_else(|_| panic!("Could not convert to array"));
 
-        Self { faces, vertices: collection }
+        Self { faces, vertices: collection, subdivisions: 0 }
     }
 
     pub fn triangles(&self) -> Vec<SharedTriangle<SharedRayCollection>> {
@@ -370,8 +371,24 @@ impl Polyhedron {
          self.find_leaf(ray).face.triangle().clone()
     }
 
+    #[cfg(feature = "progress")]
     pub fn subdivide(&mut self) {
-        self.faces.iter_mut().for_each(|face| face.subdivide());
+        use indicatif::{ProgressBar, ProgressStyle};
+        let bar = ProgressBar::new(20);
+        bar.set_style(ProgressStyle::with_template("{msg} {eta}: {bar}").unwrap());
+        bar.set_message("Subdividing polyhedron");
+        self.faces.iter_mut().for_each(|face| {
+            face.subdivide();
+            bar.inc(1);
+        });
+        bar.finish_and_clear();
+    }
+
+    #[cfg(not(feature = "progress"))]
+    pub fn subdivide(&mut self) {
+        self.faces.iter_mut().for_each(|face| {
+            face.subdivide();
+        });
     }
 
     pub fn collection(&self) -> &SharedRayCollection {
