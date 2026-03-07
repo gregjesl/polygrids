@@ -131,6 +131,7 @@ pub trait IndexedVertexSink
     type Vertex: Vertex<Scalar = Self::Scalar>;
 
     fn new_collection() -> Self;
+    fn reserve(&mut self, size: usize);
     fn seed(&mut self, vertex: Self::Vertex) -> usize;
     fn midpoint(&mut self, v1: usize, v2: usize) -> Option<(Self::Vertex, usize)>;
 }
@@ -144,6 +145,11 @@ where V: Vertex<Scalar = T> + VertexSource + Clone,
 
     fn new_collection() -> Self {
         Rc::new(RefCell::new(Vec::new()))
+    }
+
+    fn reserve(&mut self, size: usize) {
+        let mut guard = self.borrow_mut();
+        guard.reserve(size);
     }
 
     fn seed(&mut self, vertex: Self::Vertex) -> usize {
@@ -179,6 +185,11 @@ where V: Vertex<Scalar = T> + VertexSource + Clone,
 
     fn new_collection() -> Self {
         Arc::new(Mutex::new(Vec::new()))
+    }
+
+    fn reserve(&mut self, size: usize) {
+        let mut guard = self.lock().unwrap();
+        guard.reserve(size);
     }
 
     fn seed(&mut self, vertex: Self::Vertex) -> usize {
